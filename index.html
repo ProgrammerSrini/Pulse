@@ -84,13 +84,13 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
 .empty{text-align:center;padding:28px 12px;color:var(--gray2);font-size:15px;}
 .em-icon{font-size:32px;margin-bottom:6px;display:block;opacity:.4;}
 /* task */
-.task-item{display:flex;align-items:flex-start;gap:11px;padding:11px 0;border-bottom:1px solid var(--border);}
+.task-item{display:flex;align-items:flex-start;gap:12px;padding:14px 2px;border-bottom:1px solid var(--border);}
 .task-item:last-child{border-bottom:none;}
-.task-check{width:26px;height:26px;border-radius:6px;border:2px solid var(--border3);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:.15s;margin-top:1px;}
+.task-check{width:30px;height:30px;border-radius:7px;border:2.5px solid var(--border3);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:.15s;margin-top:1px;}
 .task-check.done{background:var(--blue);border-color:var(--blue);}
-.task-title{font-size:16px;font-weight:600;line-height:1.4;transition:.2s;}
-.task-title.done{text-decoration:line-through;color:var(--gray2);}
-.task-meta{display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;}
+.task-title{font-size:18px;font-weight:700;line-height:1.4;color:var(--white);transition:.2s;}
+.task-title.done{text-decoration:line-through;color:var(--gray2);font-weight:600;}
+.task-meta{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;font-size:15px;}
 /* habit cell */
 .hb-cell{width:40px;height:40px;border-radius:8px;background:var(--bg5);border:1.5px solid var(--border2);cursor:pointer;transition:.15s;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
 .hb-cell.done{border-color:transparent;}
@@ -133,7 +133,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
 .mood-btn{flex:1;padding:5px 2px;border-radius:8px;border:1px solid var(--border2);background:transparent;cursor:pointer;font-size:19px;text-align:center;transition:.15s;}
 .mood-btn.sel{border-color:var(--purple);background:rgba(167,139,250,.18);}
 /* priority dot */
-.pri-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.pri-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
 /* section tabs */
 .tabs{display:flex;gap:4px;background:var(--bg4);border-radius:10px;padding:3px;margin-bottom:12px;}
 .tab{flex:1;padding:5px 8px;border-radius:7px;border:none;background:transparent;color:var(--gray2);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:.15s;text-align:center;}
@@ -176,7 +176,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
       <div style="display:flex;flex-direction:column;gap:11px;">
         <div>
           <div style="font-size:13px;font-weight:700;color:var(--gray3);margin-bottom:5px;">Username</div>
-          <input id="auth-username" type="text" autocomplete="username" placeholder="e.g. srini" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_]/g,'')">
+          <input id="auth-username" type="text" autocomplete="username" placeholder="" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_]/g,'')">
         </div>
         <div>
           <div style="font-size:13px;font-weight:700;color:var(--gray3);margin-bottom:5px;">Password</div>
@@ -194,7 +194,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
   <div class="topbar-logo">Pulse</div>
   <div class="topbar-right">
     <div class="topbar-date" id="top-date"></div>
-    <button onclick="openModal('modal-notes')" style="background:transparent;border:1px solid var(--border2);border-radius:7px;color:var(--gray3);font-size:13px;font-weight:600;padding:4px 9px;cursor:pointer;">✏️</button>
+    <button onclick="openModal('modal-notes')" style="background:var(--bg4);border:1px solid var(--border3);border-radius:9px;color:var(--white);font-size:19px;font-weight:600;padding:6px 11px;cursor:pointer;line-height:1;">✏️</button>
     <button onclick="openProfileModal()" style="background:transparent;border:1px solid var(--border2);border-radius:7px;color:var(--gray3);font-size:13px;font-weight:600;padding:4px 9px;cursor:pointer;">👤</button>
     <div class="streak-badge">🔥<span id="streak-val">0</span></div>
   </div>
@@ -738,6 +738,16 @@ function sleepDur(bed,wake){
   let m=(wh*60+wm)-(bh*60+bm); if(m<0)m+=1440; return m/60;
 }
 function isOverdue(task){return !task.done&&task.due&&task.due<today();}
+// ── Priority ordering: high (red) → med (orange) → low (green), undone tasks first ──
+const PRI_ORDER={high:0,med:1,low:2};
+function sortTasksByPriority(list){
+  return [...list].sort((a,b)=>{
+    if(a.done!==b.done) return a.done?1:-1;
+    const pa=PRI_ORDER[a.priority]??3, pb=PRI_ORDER[b.priority]??3;
+    if(pa!==pb) return pa-pb;
+    return 0;
+  });
+}
 function greetingText(){
   const h=new Date().getHours();
   if(h>=5&&h<12) return 'Good morning ☀️';
@@ -749,6 +759,9 @@ function dayOfWeek(ds){return new Date(ds+'T12:00').getDay();}// 0=Sun
 
 // ── Habit eligibility ──
 function habitEligible(h,ds){
+  // A habit shouldn't count against days before it existed —
+  // otherwise adding a new habit today retroactively tanks past days' %.
+  if(h.created&&ds<h.created) return false;
   const dow=dayOfWeek(ds);
   if(h.freq==='weekdays') return dow>=1&&dow<=5;
   if(h.freq==='weekends') return dow===0||dow===6;
@@ -1372,7 +1385,7 @@ function taskRowHTML(task,compact=false){
   const ts=taskStreaks[task.id]||{streak:0,best:0};
   return `<div class="task-item">
     <div class="task-check ${task.done?'done':''}" onclick="toggleTask('${task.id}')">
-      ${task.done?'<svg width="10" height="10" viewBox="0 0 10 10"><polyline points="2,5 4,8 8,2" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>':''}
+      ${task.done?'<svg width="14" height="14" viewBox="0 0 10 10"><polyline points="2,5 4,8 8,2" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>':''}
     </div>
     <div style="flex:1;min-width:0;">
       <div class="task-title ${task.done?'done':''}">${task.title}</div>
@@ -1383,8 +1396,8 @@ function taskRowHTML(task,compact=false){
         ${ts.streak>0?`<span style="font-size:15px;color:var(--amber);">🔥${ts.streak}</span>`:''}      </div>
     </div>
     <div style="display:flex;align-items:center;gap:4px;">
-      ${!compact?`<button onclick="showTaskDetail('${task.id}')" style="background:transparent;border:none;color:var(--gray2);cursor:pointer;font-size:16px;padding:5px;">ⓘ</button>`:''}
-      <button onclick="deleteTask('${task.id}')" style="background:transparent;border:none;color:var(--gray);cursor:pointer;font-size:20px;padding:5px 6px;line-height:1;">×</button>
+      ${!compact?`<button onclick="showTaskDetail('${task.id}')" style="background:transparent;border:none;color:var(--gray2);cursor:pointer;font-size:18px;padding:6px;">ⓘ</button>`:''}
+      <button onclick="deleteTask('${task.id}')" style="background:transparent;border:none;color:var(--gray);cursor:pointer;font-size:22px;padding:6px 7px;line-height:1;">×</button>
     </div>
   </div>`;
 }
@@ -1627,13 +1640,28 @@ function renderTasks(){
   const daysInMon=new Date(calYear,calMonth+1,0).getDate();
   document.getElementById('cal-title').textContent=MONS[calMonth]+' '+calYear;
   document.getElementById('cal-dows').innerHTML=['S','M','T','W','T','F','S'].map(d=>`<div class="cal-dow">${d}</div>`).join('');
+  // Severity colouring: worst undone priority on that date wins (high=red, med=orange, low=green).
+  // A day with only completed tasks shows a soft green too.
+  const SEV_BG={high:'rgba(244,63,94,.32)',med:'rgba(245,158,11,.30)',low:'rgba(16,185,129,.26)',done:'rgba(16,185,129,.16)'};
+  const SEV_BORDER={high:'#f43f5e',med:'#f59e0b',low:'#10b981',done:'#10b98166'};
+  function daySeverity(ds){
+    const dayTasks=tasks.filter(x=>x.due===ds);
+    if(!dayTasks.length) return null;
+    const undone=dayTasks.filter(x=>!x.done);
+    if(!undone.length) return 'done';
+    if(undone.some(x=>x.priority==='high')) return 'high';
+    if(undone.some(x=>x.priority==='med')) return 'med';
+    return 'low';
+  }
   let cells=''; for(let i=0;i<firstDay;i++) cells+=`<div class="cal-day other-month"></div>`;
   for(let d=1;d<=daysInMon;d++){
     const ds=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const hasTasks=tasks.some(x=>x.due===ds&&!x.done);
-    const hasOverdue=tasks.some(x=>x.due===ds&&isOverdue(x));
     const isT=ds===t; const isSel=ds===calSelected;
-    cells+=`<div class="cal-day ${isT?'today':''} ${isSel&&!isT?'selected':''} ${hasTasks&&!isT?'has-tasks':''} ${hasOverdue&&!isT?'overdue-day':''}" onclick="calSelect('${ds}')">${d}</div>`;
+    const sev=daySeverity(ds);
+    let style='';
+    if(sev&&!isT) style+=`background:${SEV_BG[sev]};border:1.5px solid ${SEV_BORDER[sev]};`;
+    if(isSel&&!isT) style+=`outline:2px solid var(--blue);outline-offset:-1px;`;
+    cells+=`<div class="cal-day ${isT?'today':''} ${isSel&&!isT?'selected':''}" style="${style}" onclick="calSelect('${ds}')">${d}</div>`;
   }
   document.getElementById('cal-days').innerHTML=cells;
 
@@ -1668,7 +1696,7 @@ function renderTasks(){
     // Tasks
     html+=`<div style="font-size:13px;font-weight:700;color:var(--gray3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">Tasks (${selTasks.length})</div>`;
     html+=selTasks.length
-      ?selTasks.map(task=>{
+      ?sortTasksByPriority(selTasks).map(task=>{
           const grp=groups.find(g=>g.id===task.group);
           const pc=priCol[task.priority]||'#64748b';
           return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);">
@@ -1760,7 +1788,7 @@ function renderTasks(){
         </div>
       </div>
       ${gTasks.length?`<div class="pbar mb8"><div class="pbar-fill" style="width:${gTasks.length?Math.round(doneG/gTasks.length*100):0}%;background:${g.color};"></div></div>`:''}
-      ${gTasks.length?gTasks.map(t=>taskRowHTML(t)).join(''):`<div style="font-size:14px;color:var(--gray2);padding:5px 0;">No tasks${taskFilter!=='all'?' matching filter':''}</div>`}
+      ${gTasks.length?sortTasksByPriority(gTasks).map(t=>taskRowHTML(t)).join(''):`<div style="font-size:14px;color:var(--gray2);padding:5px 0;">No tasks${taskFilter!=='all'?' matching filter':''}</div>`}
     </div>`;
   }).join('')||`<div class="empty"><span class="em-icon">📋</span>No groups yet. Create one!</div>`;
 }
