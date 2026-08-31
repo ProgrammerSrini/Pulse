@@ -237,8 +237,12 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
   <!-- Mood log -->
   <div class="card">
     <div class="row-between mb8">
-      <div class="card-title" style="margin:0;">Today's Mood</div>
+      <div class="card-title" style="margin:0;">Mood</div>
       <span id="dash-mood-saved" style="font-size:13px;color:var(--gray2);"></span>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Date</label>
+      <input type="date" id="mood-date-input" onchange="changeMoodDate(this.value)">
     </div>
     <div class="row" style="gap:5px;" id="dash-mood-btns">
       <button class="mood-btn" data-m="1" onclick="saveMood(this)">😞</button>
@@ -272,8 +276,12 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
   <!-- Water tracker -->
   <div class="card mb10">
     <div class="row-between mb8">
-      <div class="card-title" style="margin:0;">Water Today</div>
+      <div class="card-title" style="margin:0;">Water</div>
       <div style="font-size:14px;color:var(--cyan);font-weight:700;" id="water-count-lbl"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Date</label>
+      <input type="date" id="water-date-input" onchange="changeWaterDate(this.value)">
     </div>
     <div id="water-drops" style="display:flex;gap:5px;"></div>
     <div style="font-size:12px;color:var(--gray2);margin-top:6px;">Goal: 3.5 L/day · Tap to set level</div>
@@ -286,8 +294,12 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
   <!-- Screen Time tracker -->
   <div class="card mb10">
     <div class="row-between mb8">
-      <div class="card-title" style="margin:0;">Screen Time Today</div>
+      <div class="card-title" style="margin:0;">Screen Time</div>
       <div style="font-size:14px;color:var(--purple);font-weight:700;" id="screentime-total-lbl"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Date</label>
+      <input type="date" id="screentime-date-input" onchange="changeScreenTimeDate(this.value)">
     </div>
     <div class="grid2 gap10 mb10">
       <div>
@@ -663,6 +675,14 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
   <div class="modal">
     <div class="modal-handle"></div>
     <div id="task-detail-content"></div>
+  </div>
+</div>
+
+<!-- Habit Detail -->
+<div class="modal-overlay" id="modal-habit-detail">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div id="habit-detail-content"></div>
   </div>
 </div>
 
@@ -1103,10 +1123,16 @@ function saveStudy(){
   toast('Session logged! '+fmtMins(mins),'var(--lime)');
   if(curScreen==='academic') renderAcademic();
 }
+let moodSelDate=null;
+function changeMoodDate(v){
+  moodSelDate = v || today();
+  renderDash();
+}
 function saveMood(btn){
+  const ds=moodSelDate||today();
   document.querySelectorAll('.mood-btn').forEach(b=>b.classList.remove('sel'));
   btn.classList.add('sel');
-  moods[today()]=parseInt(btn.dataset.m);
+  moods[ds]=parseInt(btn.dataset.m);
   persist();
   document.getElementById('dash-mood-saved').textContent='Saved ✓';
   setTimeout(()=>document.getElementById('dash-mood-saved').textContent='',1500);
@@ -1137,8 +1163,13 @@ function toggleHabit(hid,date){
   if(curScreen==='dash') renderDash();
   updateTopStreak();
 }
+let waterSelDate=null;
+function changeWaterDate(v){
+  waterSelDate = v || today();
+  renderWater();
+}
 function toggleWater(val){
-  const t=today(); const cur=water[t]||0;
+  const t=waterSelDate||today(); const cur=water[t]||0;
   // tap same value = decrease by 0.5, tap higher = set to that value
   water[t]= cur===val ? Math.max(0,val-0.5) : val;
   persist();
@@ -1154,6 +1185,50 @@ function deleteTask(id){
 function deleteHabit(id){
   if(!confirm('Delete this habit? Its check-in history and streak will be lost.')) return;
   habits=habits.filter(x=>x.id!==id);persist();if(curScreen==='habits') renderHabits();
+}
+function showHabitDetail(id){
+  const h=habits.find(x=>x.id===id); if(!h) return;
+  const t=today();
+  const streak=calcHabitStreakForOne(id);
+  let best=0,cur=0; datesBack(365).forEach(d=>{if(habitChecks[d+'_'+id])cur++; else cur=0; best=Math.max(best,cur);});
+  const month30=datesBack(30).filter(d=>habitChecks[d+'_'+id]).length;
+  const eligMonth=datesBack(30).filter(d=>habitEligible(h,d)).length;
+  const pct=eligMonth?Math.round(month30/eligMonth*100):0;
+  const totalDone=datesBack(365).filter(d=>habitChecks[d+'_'+id]).length;
+  // Completion history mini chart (last 14 days)
+  const last14=datesBack(14);
+  const compBars=last14.map(d=>{
+    const elig=habitEligible(h,d);
+    const done=habitChecks[d+'_'+id];
+    return `<div style="flex:1;height:24px;background:${done?h.color:'var(--bg5)'};${!elig?'opacity:.25;':''}border-radius:3px;" title="${d}"></div>`;
+  }).join('');
+  document.getElementById('habit-detail-content').innerHTML=`
+    <div class="row-between mb12">
+      <div class="modal-title">${h.name}</div>
+      <button class="close-btn" onclick="closeModal('modal-habit-detail')">✕</button>
+    </div>
+    <div class="grid2 mb10">
+      <div class="metric-card"><div class="metric-val" style="color:var(--amber);">🔥${streak}</div><div class="metric-lbl">Streak</div></div>
+      <div class="metric-card"><div class="metric-val" style="color:var(--purple);">${best}d</div><div class="metric-lbl">Best Streak</div></div>
+    </div>
+    <div class="card mb10 card-sm">
+      <div class="card-title">Completion — Last 14 Days</div>
+      <div style="display:flex;gap:2px;">${compBars}</div>
+      <div style="font-size:12px;color:var(--gray2);margin-top:4px;">${totalDone} total completions</div>
+    </div>
+    <div class="card card-sm">
+      <div style="display:flex;flex-direction:column;gap:7px;">
+        <div class="row"><span style="font-size:14px;color:var(--gray2);width:90px;">Category</span><span class="pill" style="background:${h.color}22;color:${h.color};">${h.cat}</span></div>
+        <div class="row"><span style="font-size:14px;color:var(--gray2);width:90px;">Frequency</span><span style="font-size:14px;">${h.freq||'daily'}</span></div>
+        <div class="row"><span style="font-size:14px;color:var(--gray2);width:90px;">This month</span><span style="font-size:14px;font-weight:700;color:${h.color};">${pct}%</span></div>
+        <div class="row"><span style="font-size:14px;color:var(--gray2);width:90px;">Started</span><span style="font-size:14px;">${h.created||'—'}</span></div>
+      </div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;">
+      <button class="btn ${habitChecks[t+'_'+id]?'btn-ghost':'btn-blue'}" style="flex:1;" ${habitEligible(h,t)?'':'disabled'} onclick="toggleHabit('${id}','${t}');closeModal('modal-habit-detail');renderScreen(curScreen);">${habitChecks[t+'_'+id]?'Mark undone today':'Mark done today ✅'}</button>
+    </div>
+  `;
+  openModal('modal-habit-detail');
 }
 function deleteSleep(id){
   if(!confirm('Delete this sleep log?')) return;
@@ -1374,7 +1449,10 @@ function renderDash(){
     barChart(wPct,wd.map(d=>d===t?'#a3e635':'#4f6ef7'),wLabels,110,28);
 
   // Mood
-  const curMood=moods[t];
+  const moodDs=moodSelDate||today();
+  const moodDateInput=document.getElementById('mood-date-input');
+  if(moodDateInput){ moodDateInput.value=moodDs; moodDateInput.max=today(); }
+  const curMood=moods[moodDs];
   document.querySelectorAll('.mood-btn').forEach(b=>{b.classList.toggle('sel',parseInt(b.dataset.m)===curMood);});
 }
 
@@ -1494,7 +1572,9 @@ function renderHealth(){
     :`<div class="empty"><span class="em-icon">🌙</span>No logs yet</div>`;
 }
 function renderWater(){
-  const t=today(); const cur=water[t]||0;
+  const t=waterSelDate||today(); const cur=water[t]||0;
+  document.getElementById('water-date-input').value=t;
+  document.getElementById('water-date-input').max=today();
   const GOAL=3.5; const steps=[0.5,1,1.5,2,2.5,3,3.5];
   document.getElementById('water-count-lbl').textContent=cur.toFixed(1)+'L / '+GOAL+'L';
   document.getElementById('water-drops').innerHTML=steps.map(v=>`
@@ -1511,18 +1591,26 @@ function renderWater(){
     +`<div style="font-size:13px;color:var(--gray2);margin-top:4px;">Goal: <span style="color:var(--cyan);font-weight:700;">3.5L</span>/day</div>`
     :`<div class="empty"><span class="em-icon">💧</span>Log water to see chart</div>`;
 }
+let screenTimeSelDate=null;
+function changeScreenTimeDate(v){
+  screenTimeSelDate = v || today();
+  renderScreenTime();
+}
 function saveScreenTime(){
-  const t=today();
+  const t=screenTimeSelDate||today();
   const pHrs=Math.max(0,parseFloat(document.getElementById('st-productive-input').value)||0);
   const dHrs=Math.max(0,parseFloat(document.getElementById('st-distractive-input').value)||0);
   // stored internally in minutes (backward-compatible with existing data/backups)
   screenTime[t]={productive:Math.round(pHrs*60),distractive:Math.round(dHrs*60)};
   persist();
   renderScreenTime();
-  toast('📱 Screen time saved','var(--purple)');
+  toast(t===today()?'📱 Screen time saved':`📱 Screen time saved for ${t}`,'var(--purple)');
 }
 function renderScreenTime(){
-  const t=today(); const cur=screenTime[t]||{productive:0,distractive:0};
+  const t=screenTimeSelDate||today();
+  document.getElementById('screentime-date-input').value=t;
+  document.getElementById('screentime-date-input').max=today();
+  const cur=screenTime[t]||{productive:0,distractive:0};
   const round2=m=>Math.round((m/60)*100)/100;
   document.getElementById('st-productive-input').value=cur.productive?round2(cur.productive):'';
   document.getElementById('st-distractive-input').value=cur.distractive?round2(cur.distractive):'';
@@ -1858,6 +1946,7 @@ function renderHabits(){
             <div class="row" style="gap:8px;">
               <span style="font-size:14px;color:var(--amber);font-weight:700;">🔥${streak}</span>
               <span style="font-size:15px;color:var(--gray2);">best:${best}d</span>
+              <button onclick="showHabitDetail('${h.id}')" style="background:transparent;border:none;color:var(--gray2);cursor:pointer;font-size:18px;padding:2px 5px;">ⓘ</button>
               <button onclick="deleteHabit('${h.id}')" style="background:transparent;border:none;color:var(--gray);cursor:pointer;font-size:18px;padding:2px 5px;">×</button>
             </div>
           </div>
