@@ -150,8 +150,9 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
 /* note */
 .note-card{background:var(--bg4);border:1px solid var(--border2);border-radius:10px;padding:10px 12px;margin-bottom:8px;}
 /* tag filter */
-.filter-chip{padding:5px 12px;border-radius:20px;border:1px solid var(--border2);background:transparent;color:var(--gray3);font-size:15px;font-weight:700;cursor:pointer;transition:.15s;white-space:nowrap;}
-.filter-chip.active{background:var(--blue);border-color:var(--blue);color:#fff;}
+.filter-chip{padding:9px 18px;border-radius:22px;border:1.5px solid var(--border3);background:var(--bg3);color:var(--gray3);font-size:15px;font-weight:800;cursor:pointer;transition:.15s;white-space:nowrap;}
+.filter-chip:hover{border-color:var(--blue);color:var(--white);}
+.filter-chip.active{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 2px 8px rgba(79,110,247,.4);}
 </style>
 </head>
 <body>
@@ -375,20 +376,23 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
     </div>
   </div>
   <!-- Task stats bar -->
-  <div class="grid4 mb10" id="task-stats"></div>
+  <div class="grid4 mb14" id="task-stats"></div>
   <!-- Calendar -->
-  <div class="card mb10" style="padding:12px 12px 10px;">
-    <div class="row-between mb8">
+  <div class="card mb14" style="padding:14px 14px 12px;">
+    <div class="card-title" style="margin-bottom:10px;">📅 Calendar</div>
+    <div class="row-between mb10">
       <button class="btn btn-ghost btn-sm" onclick="calNav(-1)">‹</button>
-      <span id="cal-title" style="font-weight:800;font-size:15px;color:var(--white);"></span>
+      <span id="cal-title" style="font-weight:800;font-size:16px;color:var(--white);"></span>
       <button class="btn btn-ghost btn-sm" onclick="calNav(1)">›</button>
     </div>
     <div class="cal-grid" id="cal-dows" style="margin-bottom:4px;"></div>
     <div class="cal-grid" id="cal-days"></div>
-    <div id="cal-selected-tasks" style="margin-top:10px;"></div>
+    <div id="cal-selected-tasks"></div>
   </div>
   <!-- Filter chips -->
-  <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:10px;" id="task-filters"></div>
+  <div class="card-title" style="margin-bottom:8px;">✅ Tasks</div>
+  <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:12px;" id="task-filters"></div>
+  <div id="task-clear-bar"></div>
   <!-- Groups -->
   <div id="task-groups"></div>
 </div>
@@ -1182,6 +1186,18 @@ function deleteTask(id){
   persist(); if(curScreen==='tasks') renderTasks(); if(curScreen==='dash') renderDash();
   updateNavBadges();
 }
+function clearDoneTasks(){
+  const doneCount=tasks.filter(x=>x.done).length;
+  if(!doneCount) return;
+  if(!confirm(`Delete all ${doneCount} completed task${doneCount>1?'s':''}? This can't be undone.`)) return;
+  tasks.filter(x=>x.done).forEach(x=>delete taskStreaks[x.id]);
+  tasks=tasks.filter(x=>!x.done);
+  persist();
+  if(curScreen==='tasks') renderTasks();
+  if(curScreen==='dash') renderDash();
+  updateNavBadges();
+  toast('🗑 Cleared completed tasks','var(--rose)');
+}
 function deleteHabit(id){
   if(!confirm('Delete this habit? Its check-in history and streak will be lost.')) return;
   habits=habits.filter(x=>x.id!==id);persist();if(curScreen==='habits') renderHabits();
@@ -1766,35 +1782,35 @@ function renderTasks(){
     const moodEmoji=['','😞','😕','😐','🙂','😄','🤩'];
     const priCol={low:'#10b981',med:'#f59e0b',high:'#f43f5e'};
 
-    let html=`<div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px;">`;
-    html+=`<div style="font-size:15px;font-weight:700;color:var(--white);margin-bottom:10px;">
+    let html=`<div style="border:1px solid var(--border2);background:var(--bg4);border-radius:12px;padding:14px;margin-top:12px;">`;
+    html+=`<div style="font-size:16px;font-weight:800;color:var(--white);margin-bottom:12px;">
       📅 ${new Date(ds+'T12:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}
     </div>`;
 
     // Quick stats row
-    html+=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">`;
-    if(selSleep) html+=`<span style="background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:5px 10px;font-size:14px;font-weight:600;">🌙 ${fmtH(selSleep.dur)}</span>`;
-    if(selStudyMins) html+=`<span style="background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:5px 10px;font-size:14px;font-weight:600;">📚 ${fmtMins(selStudyMins)}</span>`;
-    if(selMood) html+=`<span style="background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:5px 10px;font-size:14px;">${moodEmoji[selMood]}</span>`;
-    if(selWater) html+=`<span style="background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:5px 10px;font-size:14px;font-weight:600;">💧 ${selWater}L</span>`;
+    html+=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">`;
+    if(selSleep) html+=`<span style="background:var(--bg5);border:1px solid var(--border3);border-radius:8px;padding:6px 11px;font-size:14px;font-weight:600;">🌙 ${fmtH(selSleep.dur)}</span>`;
+    if(selStudyMins) html+=`<span style="background:var(--bg5);border:1px solid var(--border3);border-radius:8px;padding:6px 11px;font-size:14px;font-weight:600;">📚 ${fmtMins(selStudyMins)}</span>`;
+    if(selMood) html+=`<span style="background:var(--bg5);border:1px solid var(--border3);border-radius:8px;padding:6px 11px;font-size:14px;">${moodEmoji[selMood]}</span>`;
+    if(selWater) html+=`<span style="background:var(--bg5);border:1px solid var(--border3);border-radius:8px;padding:6px 11px;font-size:14px;font-weight:600;">💧 ${selWater}L</span>`;
     const doneHabits=selHabits.filter(h=>habitChecks[ds+'_'+h.id]).length;
-    if(selHabits.length) html+=`<span style="background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:5px 10px;font-size:14px;font-weight:600;">🔥 ${doneHabits}/${selHabits.length} habits</span>`;
+    if(selHabits.length) html+=`<span style="background:var(--bg5);border:1px solid var(--border3);border-radius:8px;padding:6px 11px;font-size:14px;font-weight:600;">🔥 ${doneHabits}/${selHabits.length} habits</span>`;
     html+=`</div>`;
 
     // Tasks
-    html+=`<div style="font-size:13px;font-weight:700;color:var(--gray3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">Tasks (${selTasks.length})</div>`;
+    html+=`<div style="font-size:14px;font-weight:800;color:var(--white);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">Tasks (${selTasks.length})</div>`;
     html+=selTasks.length
       ?sortTasksByPriority(selTasks).map(task=>{
           const grp=groups.find(g=>g.id===task.group);
           const pc=priCol[task.priority]||'#64748b';
-          return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);">
+          return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border2);">
             <div style="width:16px;height:16px;border-radius:4px;${task.done?'background:var(--blue);border:2px solid var(--blue);':'border:2px solid var(--border3);'}display:flex;align-items:center;justify-content:center;flex-shrink:0;">
               ${task.done?'<svg width="9" height="9" viewBox="0 0 9 9"><polyline points="1.5,4.5 3.5,7 7.5,2" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>':''}
             </div>
             <div style="flex:1;font-size:15px;${task.done?'text-decoration:line-through;color:var(--gray2);':''}">${task.title}</div>
             <div style="display:flex;align-items:center;gap:5px;">
               ${grp?`<span style="font-size:12px;color:${grp.color};">${grp.icon}</span>`:''}
-              <div style="width:5px;height:5px;border-radius:50%;background:${pc};"></div>
+              <div style="width:6px;height:6px;border-radius:50%;background:${pc};"></div>
             </div>
           </div>`;
         }).join('')
@@ -1802,11 +1818,11 @@ function renderTasks(){
 
     // Habits
     if(selHabits.length){
-      html+=`<div style="font-size:13px;font-weight:700;color:var(--gray3);text-transform:uppercase;letter-spacing:.6px;margin:10px 0 6px;">Habits</div>`;
+      html+=`<div style="font-size:14px;font-weight:800;color:var(--white);text-transform:uppercase;letter-spacing:.6px;margin:14px 0 8px;">Habits</div>`;
       html+=`<div style="display:flex;flex-wrap:wrap;gap:6px;">`;
       selHabits.forEach(h=>{
         const done=habitChecks[ds+'_'+h.id];
-        html+=`<span style="display:flex;align-items:center;gap:5px;padding:4px 9px;border-radius:20px;font-size:14px;font-weight:600;background:${done?h.color+'33':'var(--bg4)'};border:1px solid ${done?h.color+'66':'var(--border2)'};color:${done?h.color:'var(--gray2)'};">
+        html+=`<span style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;font-size:14px;font-weight:600;background:${done?h.color+'33':'var(--bg5)'};border:1px solid ${done?h.color+'66':'var(--border3)'};color:${done?h.color:'var(--gray3)'};">
           ${done?'✓':' '} ${h.name}
         </span>`;
       });
@@ -1815,8 +1831,8 @@ function renderTasks(){
 
     // Sleep
     if(selSleep){
-      html+=`<div style="font-size:13px;font-weight:700;color:var(--gray3);text-transform:uppercase;letter-spacing:.6px;margin:10px 0 6px;">Sleep</div>`;
-      html+=`<div style="background:var(--bg4);border-radius:8px;padding:8px 12px;font-size:14px;display:flex;gap:14px;">
+      html+=`<div style="font-size:14px;font-weight:800;color:var(--white);text-transform:uppercase;letter-spacing:.6px;margin:14px 0 8px;">Sleep</div>`;
+      html+=`<div style="background:var(--bg5);border-radius:8px;padding:9px 12px;font-size:14px;display:flex;gap:14px;">
         <span>🌙 ${selSleep.bed} → ${selSleep.wake}</span>
         <span style="color:var(--cyan);font-weight:700;">${fmtH(selSleep.dur)}</span>
         <span>${['','😴','😐','🙂','😊','🌟'][selSleep.quality]||''}</span>
@@ -1826,10 +1842,10 @@ function renderTasks(){
 
     // Study sessions
     if(selStudy.length){
-      html+=`<div style="font-size:13px;font-weight:700;color:var(--gray3);text-transform:uppercase;letter-spacing:.6px;margin:10px 0 6px;">Study — ${fmtMins(selStudyMins)} total</div>`;
+      html+=`<div style="font-size:14px;font-weight:800;color:var(--white);text-transform:uppercase;letter-spacing:.6px;margin:14px 0 8px;">Study — ${fmtMins(selStudyMins)} total</div>`;
       selStudy.forEach(s=>{
         const sub=subjects.find(x=>x.id===s.subId);
-        html+=`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">
+        html+=`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border2);">
           <div style="width:3px;height:28px;border-radius:2px;background:${sub?.color||'#4f6ef7'};flex-shrink:0;"></div>
           <div style="font-size:15px;font-weight:600;">${sub?.name||'Unknown'}</div>
           <div style="font-size:15px;color:var(--lime);font-weight:700;margin-left:auto;">${fmtMins(s.mins)}</div>
@@ -1848,6 +1864,12 @@ function renderTasks(){
     ['all','overdue','today','pending','done'].map(f=>`
       <button class="filter-chip ${taskFilter===f?'active':''}" onclick="setTaskFilter('${f}')">${{all:'All',overdue:'Overdue',today:'Today',pending:'Pending',done:'Done'}[f]}</button>
     `).join('');
+
+  // Clear-all bar (only shown while viewing the Done filter)
+  const doneCount=tasks.filter(x=>x.done).length;
+  document.getElementById('task-clear-bar').innerHTML = (taskFilter==='done' && doneCount>0)
+    ? `<button class="btn btn-rose btn-sm" style="width:100%;margin-bottom:12px;" onclick="clearDoneTasks()">🗑 Clear all done (${doneCount})</button>`
+    : '';
 
   // Groups
   const filteredTasks=tasks.filter(t=>{
