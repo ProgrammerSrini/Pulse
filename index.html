@@ -346,6 +346,14 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
   </div>
   <!-- Subject cards -->
   <div id="subject-cards" class="mb10"></div>
+  <!-- Weekly analysis -->
+  <div class="card mb10">
+    <div class="row-between mb8">
+      <div class="card-title" style="margin:0;">📊 Weekly Analysis</div>
+      <div id="weekly-range-lbl" style="font-size:13px;color:var(--gray2);"></div>
+    </div>
+    <div class="grid4" id="weekly-analysis-stats"></div>
+  </div>
   <!-- Study chart -->
   <div class="card mb10">
     <div class="row-between mb8">
@@ -762,13 +770,16 @@ function sleepDur(bed,wake){
   let m=(wh*60+wm)-(bh*60+bm); if(m<0)m+=1440; return m/60;
 }
 function isOverdue(task){return !task.done&&task.due&&task.due<today();}
-// ── Priority ordering: high (red) → med (orange) → low (green), undone tasks first ──
+// ── Priority ordering: high (red) → med (orange) → low (green), undone tasks first,
+//    then by due date ascending (earlier dates first) within each severity ──
 const PRI_ORDER={high:0,med:1,low:2};
 function sortTasksByPriority(list){
   return [...list].sort((a,b)=>{
     if(a.done!==b.done) return a.done?1:-1;
     const pa=PRI_ORDER[a.priority]??3, pb=PRI_ORDER[b.priority]??3;
     if(pa!==pb) return pa-pb;
+    const da=a.due||'9999-99-99', db=b.due||'9999-99-99';
+    if(da!==db) return da<db?-1:1;
     return 0;
   });
 }
@@ -780,6 +791,27 @@ function greetingText(){
   return 'Good night 🌙';
 }
 function dayOfWeek(ds){return new Date(ds+'T12:00').getDay();}// 0=Sun
+// ── Calendar week helpers (Monday-start) so weekly study targets actually reset each week ──
+function startOfWeek(ds){
+  const d=new Date(ds+'T12:00');
+  const dow=d.getDay(); // 0=Sun..6=Sat
+  const diff=(dow===0?-6:1-dow); // days back to Monday
+  d.setDate(d.getDate()+diff);
+  return toLocalYMD(d);
+}
+function datesInCalendarWeek(ds){
+  // full Mon–Sun week containing ds
+  const start=new Date(startOfWeek(ds)+'T12:00');
+  return Array.from({length:7},(_,i)=>{const d=new Date(start);d.setDate(d.getDate()+i);return toLocalYMD(d);});
+}
+function datesElapsedInCalendarWeek(ds){
+  // Monday..ds only (no future days) — used for "so far this week" progress
+  const start=new Date(startOfWeek(ds)+'T12:00');
+  const end=new Date(ds+'T12:00');
+  const out=[]; const cur=new Date(start);
+  while(cur<=end){ out.push(toLocalYMD(cur)); cur.setDate(cur.getDate()+1); }
+  return out;
+}
 
 // ── Habit eligibility ──
 function habitEligible(h,ds){
@@ -1653,10 +1685,36 @@ function renderAcademic(){
   const totalWeek=weekMins.reduce((a,b)=>a+b,0);
   const wLabels=wd.map(d=>new Date(d+'T12:00').toLocaleDateString('en',{weekday:'short'}).slice(0,2));
 
-  // Subject cards
+  // Calendar week (Mon–Sun) — this is what the subject rings/targets reset against each week,
+  // instead of a rolling 7-day window that never truly resets.
+  const elapsedWk=datesElapsedInCalendarWeek(t);       // Monday..today, no future days
+  const fullWk=datesInCalendarWeek(t);                  // full Mon–Sun span, for the date-range label
+  const prevWkAnchor=(()=>{const d=new Date(startOfWeek(t)+'T12:00');d.setDate(d.getDate()-1);return toLocalYMD(d);})();
+  const prevWk=datesInCalendarWeek(prevWkAnchor);       // full previous Mon–Sun week
+
+  const minsFor=(dates,subId)=>dates.reduce((a,d)=>a+studySess.filter(s=>s.date===d&&(!subId||s.subId===subId)).reduce((b,ss)=>b+ss.mins,0),0);
+  const thisWeekTotal=minsFor(elapsedWk);
+  const prevWeekTotal=minsFor(prevWk);
+  const daysElapsed=elapsedWk.length;
+  const dailyAvg=daysElapsed?Math.round(thisWeekTotal/daysElapsed):0;
+  const dayTotals=elapsedWk.map(d=>({d,m:minsFor([d])}));
+  const bestDay=dayTotals.reduce((best,cur)=>cur.m>best.m?cur:best,{d:null,m:0});
+  const wowDelta=prevWeekTotal?Math.round(((thisWeekTotal-prevWeekTotal)/prevWeekTotal)*100):(thisWeekTotal?100:0);
+
+  document.getElementById('weekly-range-lbl').textContent=
+    new Date(fullWk[0]+'T12:00').toLocaleDateString('en',{month:'short',day:'numeric'})+' – '+
+    new Date(fullWk[6]+'T12:00').toLocaleDateString('en',{month:'short',day:'numeric'});
+  document.getElementById('weekly-analysis-stats').innerHTML=`
+    <div class="metric-card"><div class="metric-val" style="color:var(--lime);">${fmtMins(thisWeekTotal)}</div><div class="metric-lbl">This Week</div></div>
+    <div class="metric-card"><div class="metric-val" style="color:${wowDelta>=0?'var(--lime)':'var(--rose)'};">${wowDelta>=0?'+':''}${wowDelta}%</div><div class="metric-lbl">vs Last Wk</div></div>
+    <div class="metric-card"><div class="metric-val" style="color:var(--blue);">${fmtMins(dailyAvg)}</div><div class="metric-lbl">Daily Avg</div></div>
+    <div class="metric-card"><div class="metric-val" style="color:var(--amber);">${bestDay.d?new Date(bestDay.d+'T12:00').toLocaleDateString('en',{weekday:'short'}):'—'}</div><div class="metric-lbl">Best Day</div></div>
+  `;
+
+  // Subject cards — weekly ring now resets every Monday (calendar week, not a rolling window)
   document.getElementById('subject-cards').innerHTML=subjects.length
     ?`<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;">${subjects.map(sub=>{
-        const weeklyMins=wd.reduce((a,d)=>a+studySess.filter(s=>s.date===d&&s.subId===sub.id).reduce((b,ss)=>b+ss.mins,0),0);
+        const weeklyMins=minsFor(elapsedWk,sub.id);
         const pct=sub.target?Math.min(100,Math.round(weeklyMins/sub.target*100)):0;
         const total=studySess.filter(s=>s.subId===sub.id).reduce((a,b)=>a+b.mins,0);
         return `<div class="card" style="flex-shrink:0;min-width:176px;padding:16px;border-color:${sub.color}33;">
@@ -1688,10 +1746,10 @@ function renderAcademic(){
   document.getElementById('study-chart').innerHTML=
     barChart(weekMins.map(m=>Math.round(m/60*10)/10),wd.map((d,i)=>d===t?'#a3e635':'#4f6ef7'),wLabels,110,28);
 
-  // Subject breakdown horizontal bars
+  // Subject breakdown — uses this calendar week (Mon..today), matching the "This Week" label
   const breakdownHTML=subjects.map(sub=>{
-    const wm=wd.reduce((a,d)=>a+studySess.filter(s=>s.date===d&&s.subId===sub.id).reduce((b,ss)=>b+ss.mins,0),0);
-    const pct=totalWeek?Math.round(wm/totalWeek*100):0;
+    const wm=minsFor(elapsedWk,sub.id);
+    const pct=thisWeekTotal?Math.round(wm/thisWeekTotal*100):0;
     return `<div style="margin-bottom:12px;">
       <div class="row-between" style="margin-bottom:5px;">
         <div class="row" style="gap:7px;"><div class="dot" style="width:9px;height:9px;background:${sub.color};"></div><span style="font-size:15px;font-weight:600;">${sub.name}</span></div>
@@ -1700,7 +1758,7 @@ function renderAcademic(){
       <div class="pbar" style="height:8px;"><div class="pbar-fill" style="width:${pct}%;background:${sub.color};"></div></div>
     </div>`;
   }).join('');
-  document.getElementById('subject-breakdown').innerHTML=subjects.length&&totalWeek
+  document.getElementById('subject-breakdown').innerHTML=subjects.length&&thisWeekTotal
     ?breakdownHTML
     :`<div class="empty">Log sessions to see breakdown</div>`;
 
