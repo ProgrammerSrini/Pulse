@@ -380,7 +380,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
     <div class="pg-title">Tasks</div>
     <div class="row gap6">
       <button class="btn btn-ghost btn-sm" onclick="openModal('modal-group')">+ Group</button>
-      <button class="btn btn-blue btn-sm" onclick="openModal('modal-task')">+ Task</button>
+      <button class="btn btn-blue btn-sm" onclick="openAddTask()">+ Task</button>
     </div>
   </div>
   <!-- Task stats bar -->
@@ -580,7 +580,8 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
 <div class="modal-overlay" id="modal-task">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="row-between mb12"><div class="modal-title">New Task</div><button class="close-btn" onclick="closeModal('modal-task')">✕</button></div>
+    <div class="row-between mb12"><div class="modal-title" id="tk-modal-title">New Task</div><button class="close-btn" onclick="closeModal('modal-task')">✕</button></div>
+    <input type="hidden" id="tk-id" value="">
     <div class="form-group"><label class="form-label">Title</label><input type="text" id="tk-title" placeholder="What needs to be done?"></div>
     <div class="form-group"><label class="form-label">Group</label><select id="tk-group"></select></div>
     <div class="grid2">
@@ -592,7 +593,10 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
       </div>
     </div>
     <div class="form-group"><label class="form-label">Notes</label><textarea id="tk-notes" rows="2" placeholder="Optional details..."></textarea></div>
-    <button class="btn btn-blue" style="width:100%;" onclick="saveTask()">Add Task</button>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-blue" id="tk-save-btn" style="flex:1;" onclick="saveTask()">Add Task</button>
+      <button class="btn btn-ghost" id="tk-delete-btn" style="display:none;color:var(--rose);" onclick="deleteTaskFromEditor()">Delete</button>
+    </div>
   </div>
 </div>
 
@@ -674,7 +678,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
     <div class="modal-handle"></div>
     <div class="modal-title mb12">Quick Add</div>
     <div class="grid2" style="gap:10px;">
-      <button class="btn btn-ghost" style="flex-direction:column;gap:4px;height:60px;font-size:15px;" onclick="closeModal('modal-quickadd');openModal('modal-task')">✅<span>Task</span></button>
+      <button class="btn btn-ghost" style="flex-direction:column;gap:4px;height:60px;font-size:15px;" onclick="closeModal('modal-quickadd');openAddTask()">✅<span>Task</span></button>
       <button class="btn btn-ghost" style="flex-direction:column;gap:4px;height:60px;font-size:15px;" onclick="closeModal('modal-quickadd');openModal('modal-sleep')">🌙<span>Sleep</span></button>
       <button class="btn btn-ghost" style="flex-direction:column;gap:4px;height:60px;font-size:15px;" onclick="closeModal('modal-quickadd');openModal('modal-study')">📚<span>Study</span></button>
       <button class="btn btn-ghost" style="flex-direction:column;gap:4px;height:60px;font-size:15px;" onclick="closeModal('modal-quickadd');openModal('modal-habit')">🔥<span>Habit</span></button>
@@ -894,9 +898,32 @@ function openModal(id){
       :'<option>Add subjects first</option>';
   }
   if(id==='modal-task'){
-    document.getElementById('tk-due').value=t;
     document.getElementById('tk-group').innerHTML=groups.map(g=>`<option value="${g.id}">${g.icon} ${g.name}</option>`).join('');
   }
+}
+function openAddTask(){
+  openModal('modal-task');
+  document.getElementById('tk-id').value='';
+  document.getElementById('tk-title').value='';
+  document.getElementById('tk-due').value=today();
+  document.getElementById('tk-priority').value='med';
+  document.getElementById('tk-notes').value='';
+  document.getElementById('tk-modal-title').textContent='New Task';
+  document.getElementById('tk-save-btn').textContent='Add Task';
+  document.getElementById('tk-delete-btn').style.display='none';
+}
+function openEditTask(id){
+  const t=tasks.find(x=>x.id===id); if(!t) return;
+  openModal('modal-task');
+  document.getElementById('tk-id').value=t.id;
+  document.getElementById('tk-title').value=t.title;
+  document.getElementById('tk-group').value=t.group||'';
+  document.getElementById('tk-due').value=t.due||'';
+  document.getElementById('tk-priority').value=t.priority||'med';
+  document.getElementById('tk-notes').value=t.notes||'';
+  document.getElementById('tk-modal-title').textContent='Edit Task';
+  document.getElementById('tk-save-btn').textContent='Save Changes';
+  document.getElementById('tk-delete-btn').style.display='inline-block';
 }
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 document.querySelectorAll('.modal-overlay').forEach(m=>{
@@ -1082,18 +1109,37 @@ function renderNotes(){
     :`<div class="empty"><span class="em-icon">📁</span>No folders yet. Create one!</div>`;
 }
 function saveTask(){
+  const editId=document.getElementById('tk-id').value;
   const title=document.getElementById('tk-title').value.trim();
   const group=document.getElementById('tk-group').value;
   const due=document.getElementById('tk-due').value;
   const priority=document.getElementById('tk-priority').value;
   const notes=document.getElementById('tk-notes').value;
   if(!title){toast('Enter a task title','var(--rose)');return;}
-  const id=uid();
-  tasks.push({id,title,group,due,priority,notes,done:false,created:today(),completions:[]});
-  taskStreaks[id]={streak:0,lastDone:null,best:0};
-  persist(); closeModal('modal-task');
+  if(editId){
+    const t=tasks.find(x=>x.id===editId);
+    if(t){ t.title=title; t.group=group; t.due=due; t.priority=priority; t.notes=notes; }
+    persist(); closeModal('modal-task');
+    toast('Task updated!','var(--blue)');
+  } else {
+    const id=uid();
+    tasks.push({id,title,group,due,priority,notes,done:false,created:today(),completions:[]});
+    taskStreaks[id]={streak:0,lastDone:null,best:0};
+    persist(); closeModal('modal-task');
+    toast('Task added!','var(--blue)');
+  }
+  document.getElementById('tk-id').value='';
   document.getElementById('tk-title').value=''; document.getElementById('tk-notes').value='';
-  toast('Task added!','var(--blue)');
+  if(curScreen==='tasks') renderTasks();
+  if(curScreen==='dash') renderDash();
+  updateNavBadges();
+}
+function deleteTaskFromEditor(){
+  const id=document.getElementById('tk-id').value; if(!id) return;
+  if(!confirm('Delete this task?')) return;
+  tasks=tasks.filter(x=>x.id!==id); delete taskStreaks[id];
+  persist(); closeModal('modal-task');
+  toast('Task deleted','var(--rose)');
   if(curScreen==='tasks') renderTasks();
   if(curScreen==='dash') renderDash();
   updateNavBadges();
@@ -1565,6 +1611,7 @@ function showTaskDetail(id){
     </div>
     <div style="margin-top:12px;display:flex;gap:8px;">
       <button class="btn ${task.done?'btn-ghost':'btn-blue'}" style="flex:1;" onclick="toggleTask('${id}');closeModal('modal-task-detail');renderScreen(curScreen);">${task.done?'Mark undone':'Mark done ✅'}</button>
+      <button class="btn btn-ghost" style="flex:1;" onclick="closeModal('modal-task-detail');openEditTask('${id}');">✏️ Edit</button>
     </div>
   `;
   openModal('modal-task-detail');
