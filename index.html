@@ -702,21 +702,23 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
   </div>
 </div>
 
-<script>
+<script type="text/plain" id="pulse-app-src">
 // ══════════════════════════════════════
 //  DATA
 // ══════════════════════════════════════
 const DB={
-  get(k){try{return JSON.parse(localStorage.getItem('pulse2_'+k)||'null');}catch{return null;}},
+  // In-memory copy of the rows loaded from Supabase at startup (PULSE_CACHE lives in the auth script).
+  get(k){
+    const raw=PULSE_CACHE[k];
+    if(raw===undefined) return null;
+    try{return JSON.parse(raw);}catch{return null;}
+  },
   set(k,v){
     try{
-      localStorage.setItem('pulse2_'+k,JSON.stringify(v));
-      if(typeof currentUserId!=='undefined' && currentUserId && typeof sb!=='undefined'){
-        sb.from('pulse_data').upsert({user_id:currentUserId,key:k,value:v}).then(({error})=>{
-          if(error) console.error('Pulse: cloud save failed for "'+k+'"',error);
-        });
-      }
-      return true;
+      const raw=JSON.stringify(v);
+      if(PULSE_CACHE[k]===raw && !_unsynced[k]) return true;   // unchanged -> nothing to upload
+      PULSE_CACHE[k]=raw;
+      return cloudSave(k,JSON.parse(raw));                      // snapshot -> Supabase
     }
     catch(err){console.error('Pulse: failed to save "'+k+'"',err);return false;}
   }
@@ -747,7 +749,7 @@ function persist(){
     save('screenTime',screenTime), save('tstreaks',taskStreaks),
     save('noteFolders',noteFolders), save('notes',notes)
   ].every(Boolean);
-  if(!ok) toast('⚠️ Save failed — storage full or unavailable. Export a backup now.','var(--rose)');
+  if(!ok) toast('⚠️ Save failed — not signed in or cloud unavailable. Export a backup now.','var(--rose)');
 }
 
 // ── Utils ──
@@ -760,6 +762,7 @@ function toLocalYMD(d){
 }
 function today(){return toLocalYMD(new Date());}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+function escHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function fmtMins(m){if(!m) return '0m'; if(m<60) return m+'m'; return Math.floor(m/60)+'h'+(m%60?' '+m%60+'m':'');}
 function fmtH(h){return parseFloat(h).toFixed(1)+'h';}
 function datesBack(n){
@@ -1297,8 +1300,11 @@ function showHabitDetail(id){
     return `<div style="flex:1;height:24px;background:${done?h.color:'var(--bg5)'};${!elig?'opacity:.25;':''}border-radius:3px;" title="${d}"></div>`;
   }).join('');
   document.getElementById('habit-detail-content').innerHTML=`
-    <div class="row-between mb12">
-      <div class="modal-title">${h.name}</div>
+    <div class="row-between mb12" style="gap:8px;">
+      <div id="hd-title-wrap" style="flex:1;min-width:0;display:flex;align-items:center;gap:6px;">
+        <div class="modal-title" style="min-width:0;overflow-wrap:anywhere;">${escHtml(h.name)}</div>
+        <button onclick="startRenameHabit('${id}')" title="Rename habit" style="background:transparent;border:none;color:var(--gray2);cursor:pointer;font-size:16px;padding:2px 5px;">✏️</button>
+      </div>
       <button class="close-btn" onclick="closeModal('modal-habit-detail')">✕</button>
     </div>
     <div class="grid2 mb10">
@@ -1323,6 +1329,29 @@ function showHabitDetail(id){
     </div>
   `;
   openModal('modal-habit-detail');
+}
+function startRenameHabit(id){
+  const h=habits.find(x=>x.id===id); if(!h) return;
+  const wrap=document.getElementById('hd-title-wrap'); if(!wrap) return;
+  wrap.innerHTML=`
+    <input type="text" id="hd-name-input" maxlength="60" value="${escHtml(h.name)}" style="flex:1;min-width:0;"
+      onkeydown="if(event.key==='Enter')saveHabitName('${id}');else if(event.key==='Escape')showHabitDetail('${id}');">
+    <button class="btn btn-blue btn-sm" onclick="saveHabitName('${id}')">Save</button>
+    <button class="btn btn-ghost btn-sm" onclick="showHabitDetail('${id}')">Cancel</button>`;
+  const inp=document.getElementById('hd-name-input'); inp.focus(); inp.select();
+}
+function saveHabitName(id){
+  const h=habits.find(x=>x.id===id); if(!h) return;
+  const name=document.getElementById('hd-name-input').value.trim().replace(/\s+/g,' ');
+  if(!name){toast('Habit name cannot be empty','var(--rose)');return;}
+  if(name===h.name){showHabitDetail(id);return;}
+  // Only the display name changes. id, created, color, freq and every check-in
+  // (habitChecks is keyed by date+id) stay exactly as they were, so streaks and charts are unaffected.
+  h.name=name;
+  persist();
+  showHabitDetail(id);
+  renderScreen(curScreen);
+  flushSaves().then(ok=>{ if(ok) toast('Habit renamed ✓','var(--lime)'); });
 }
 function deleteSleep(id){
   if(!confirm('Delete this sleep log?')) return;
@@ -1525,7 +1554,7 @@ function renderDash(){
         <div class="hb-cell ${done?'done':''}" style="${done?'background:'+hb.color+';border-color:transparent;':''}" onclick="toggleHabit('${hb.id}','${t}')">
           ${done?'<svg width="12" height="12" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg>':''}
         </div>
-        <div style="flex:1;font-size:15px;font-weight:600;${done?'text-decoration:line-through;color:var(--gray2);':''}">${hb.name}</div>
+        <div style="flex:1;font-size:15px;font-weight:600;${done?'text-decoration:line-through;color:var(--gray2);':''}">${escHtml(hb.name)}</div>
         <div class="pill" style="background:${hb.color}22;color:${hb.color};">${hb.cat}</div>
       </div>`;
     }).join('')
@@ -1928,7 +1957,7 @@ function renderTasks(){
       selHabits.forEach(h=>{
         const done=habitChecks[ds+'_'+h.id];
         html+=`<span style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;font-size:14px;font-weight:600;background:${done?h.color+'33':'var(--bg5)'};border:1px solid ${done?h.color+'66':'var(--border3)'};color:${done?h.color:'var(--gray3)'};">
-          ${done?'✓':' '} ${h.name}
+          ${done?'✓':' '} ${escHtml(h.name)}
         </span>`;
       });
       html+=`</div>`;
@@ -2067,7 +2096,7 @@ function renderHabits(){
           <div class="row-between mb8">
             <div class="row" style="gap:7px;">
               <div class="dot" style="background:${h.color};width:10px;height:10px;"></div>
-              <span style="font-size:15px;font-weight:800;color:var(--white);">${h.name}</span>
+              <span style="font-size:15px;font-weight:800;color:var(--white);">${escHtml(h.name)}</span>
               <span class="pill" style="background:${h.color}22;color:${h.color};">${h.cat}</span>
             </div>
             <div class="row" style="gap:8px;">
@@ -2168,7 +2197,7 @@ renderDash(); renderHealth(); renderAcademic(); renderTasks(); renderHabits();
       <div id="backup-preview" style="font-size:13px;min-height:14px;margin-bottom:8px;"></div>
       <button class="btn btn-rose" style="width:100%;font-size:15px;opacity:.5;cursor:not-allowed;" id="restore-btn" disabled onclick="restoreBackup()">⬆️ Restore & Overwrite</button>
     </div>
-    <div style="font-size:12px;color:var(--gray);margin-top:10px;text-align:center;line-height:1.5;">All data lives in your browser's localStorage.<br>Export regularly to avoid losing it if you clear the browser.</div>
+    <div style="font-size:12px;color:var(--gray);margin-top:10px;text-align:center;line-height:1.5;">Your data is stored in your Supabase cloud account.<br>Export a backup now and then for extra safety.</div>
   </div>
 </div>
 
@@ -2265,7 +2294,48 @@ const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
 
 let authMode = 'login';
 let currentUserId = null;
-let currentUsername = localStorage.getItem('pulse2_username');
+let currentUsername = null;
+
+// Supabase (table pulse_data) is the only place app data is stored.
+// PULSE_CACHE is just the in-memory copy of this user's rows for the current session (key -> JSON string).
+const PULSE_KEYS = ['sleep','habits','tasks','groups','subjects','study','hchecks','moods','water','screenTime','tstreaks','noteFolders','notes'];
+const PULSE_CACHE = {};
+const _saveChain = {};   // per-key promise chain so saves for one key reach Supabase in order
+const _unsynced = {};    // keys whose last upload failed (retried on next save)
+
+function cloudSave(k, v){
+  if(!currentUserId) return false;
+  const uid = currentUserId;
+  _saveChain[k] = (_saveChain[k] || Promise.resolve()).then(async ()=>{
+    try{
+      const { error } = await sb.from('pulse_data').upsert({ user_id:uid, key:k, value:v });
+      if(error) throw error;
+      delete _unsynced[k];
+      return true;
+    }catch(err){
+      console.error('Pulse: cloud save failed for "'+k+'"', err);
+      _unsynced[k] = true;
+      toast('⚠️ Cloud save failed — check your connection','var(--rose)');
+      return false;
+    }
+  });
+  return true;
+}
+async function flushSaves(){
+  const results = await Promise.all(Object.values(_saveChain));
+  return results.every(Boolean);
+}
+
+let appStarted = false;
+function startApp(){
+  if(appStarted) return;
+  appStarted = true;
+  // The app code only runs once this user's data is in memory.
+  const s = document.createElement('script');
+  s.textContent = document.getElementById('pulse-app-src').textContent;
+  document.body.appendChild(s);
+  onAuthSuccess();
+}
 
 function usernameToEmail(u){ return u + '@pulseusers.app'; }
 
@@ -2276,18 +2346,18 @@ function openProfileModal(){
 
 async function handleLogout(){
   if(!confirm('Log out? Your data stays saved in the cloud.')) return;
+  await flushSaves();
   await sb.auth.signOut();
-  sessionStorage.removeItem('pulse_pulled');
   location.reload();
 }
 
 async function handleClearAllData(){
   if(!confirm('Clear ALL your data (habits, tasks, sleep, notes, everything)? This cannot be undone.')) return;
   if(!confirm('Really sure? There is no way to get this data back.')) return;
-  clearLocalPulseData();
+  await flushSaves();
   if(currentUserId){
     const { error } = await sb.from('pulse_data').delete().eq('user_id', currentUserId);
-    if(error) console.error('Pulse: clear cloud data failed', error);
+    if(error){ console.error('Pulse: clear cloud data failed', error); toast('⚠️ Could not clear cloud data','var(--rose)'); return; }
   }
   location.reload();
 }
@@ -2296,40 +2366,45 @@ async function handleDeleteAccount(){
   if(!confirm('Delete your account? This wipes all your data and your username permanently.')) return;
   if(!confirm('This cannot be undone. Delete your account for real?')) return;
   if(!currentUserId) return;
+  await flushSaves();
   await sb.from('pulse_data').delete().eq('user_id', currentUserId);
   await sb.from('profiles').delete().eq('id', currentUserId);
-  clearLocalPulseData();
-  localStorage.removeItem('pulse2_username');
   await sb.auth.signOut();
-  sessionStorage.removeItem('pulse_pulled');
   location.reload();
 }
 
-const PULSE_KEYS = ['sleep','habits','tasks','groups','subjects','study','hchecks','moods','water','screenTime','tstreaks','noteFolders','notes'];
-
-async function pullRemoteData(userId){
+async function pullRemoteData(userId, username){
   const { data, error } = await sb.from('pulse_data').select('key,value').eq('user_id', userId);
-  if(error){ console.error('Pulse: pull failed', error); return; }
-  clearLocalPulseData();
-  (data||[]).forEach(row=>{
-    localStorage.setItem('pulse2_'+row.key, JSON.stringify(row.value));
-  });
+  if(error){ console.error('Pulse: pull failed', error); return false; }
+  Object.keys(PULSE_CACHE).forEach(k=>delete PULSE_CACHE[k]);
+  (data||[]).forEach(row=>{ PULSE_CACHE[row.key] = JSON.stringify(row.value); });
+  await adoptLegacyLocalData(userId, username);
+  return true;
 }
 
-async function pushAllLocalData(userId){
-  for(const k of PULSE_KEYS){
-    const raw = localStorage.getItem('pulse2_'+k);
-    if(raw===null) continue;
-    try{
-      const value = JSON.parse(raw);
-      const { error } = await sb.from('pulse_data').upsert({ user_id:userId, key:k, value });
-      if(error) console.error('Pulse: push failed for', k, error);
-    }catch(e){ console.error('Pulse: push failed for', k, e); }
-  }
-}
-
-function clearLocalPulseData(){
-  PULSE_KEYS.forEach(k=>localStorage.removeItem('pulse2_'+k));
+// One-time clean-up of the OLD localStorage copy this app used before.
+// If the cloud account is empty, the old local data is uploaded first so nothing is lost; then it is removed.
+async function adoptLegacyLocalData(userId, username){
+  try{
+    const hasLegacy = PULSE_KEYS.some(k=>localStorage.getItem('pulse2_'+k)!==null);
+    if(hasLegacy){
+      const legacyUser = localStorage.getItem('pulse2_username');
+      const cloudEmpty = Object.keys(PULSE_CACHE).length === 0;
+      if(cloudEmpty && (!legacyUser || legacyUser === username)){
+        for(const k of PULSE_KEYS){
+          const raw = localStorage.getItem('pulse2_'+k);
+          if(raw===null) continue;
+          const value = JSON.parse(raw);
+          const { error } = await sb.from('pulse_data').upsert({ user_id:userId, key:k, value });
+          if(error) throw error;
+          PULSE_CACHE[k] = JSON.stringify(value);
+        }
+      }
+      PULSE_KEYS.forEach(k=>localStorage.removeItem('pulse2_'+k));
+    }
+    localStorage.removeItem('pulse2_username');
+    localStorage.removeItem('pulse2_migrated');
+  }catch(e){ console.error('Pulse: legacy local data import failed — local copy kept', e); }
 }
 
 function switchAuthTab(mode){
@@ -2394,17 +2469,8 @@ async function handleSignup(username, password){
   }
   currentUserId = data.user.id;
   currentUsername = username;
-  localStorage.setItem('pulse2_username', username);
-  if(!localStorage.getItem('pulse2_migrated')){
-    await pushAllLocalData(currentUserId);
-    localStorage.setItem('pulse2_migrated','1');
-    sessionStorage.setItem('pulse_pulled','1');
-    onAuthSuccess();
-  } else {
-    clearLocalPulseData();
-    sessionStorage.setItem('pulse_pulled','1');
-    location.reload();
-  }
+  if(!(await pullRemoteData(currentUserId, username))) throw new Error('Account created, but loading your data failed. Please log in again.');
+  startApp();
 }
 
 async function handleLogin(username, password){
@@ -2418,10 +2484,8 @@ async function handleLogin(username, password){
   }
   currentUserId = data.user.id;
   currentUsername = username;
-  localStorage.setItem('pulse2_username', username);
-  await pullRemoteData(currentUserId);
-  sessionStorage.setItem('pulse_pulled','1');
-  location.reload();
+  if(!(await pullRemoteData(currentUserId, username))) throw new Error('Could not load your data. Check your connection and try again.');
+  startApp();
 }
 
 function onAuthSuccess(){
@@ -2430,30 +2494,18 @@ function onAuthSuccess(){
 
 async function checkExistingSession(){
   const { data } = await sb.auth.getSession();
-  if(data.session){
-    currentUserId = data.session.user.id;
-    const { data: prof } = await sb.from('profiles').select('username').eq('id', currentUserId).single();
-    if(!prof){
-      await sb.auth.signOut();
-      clearLocalPulseData();
-      localStorage.removeItem('pulse2_username');
-      sessionStorage.removeItem('pulse_pulled');
-      currentUserId = null;
-      currentUsername = null;
-      return;
-    }
-    if(!currentUsername){
-      currentUsername = prof.username;
-      localStorage.setItem('pulse2_username', currentUsername);
-    }
-    if(!sessionStorage.getItem('pulse_pulled')){
-      await pullRemoteData(currentUserId);
-      sessionStorage.setItem('pulse_pulled','1');
-      location.reload();
-      return;
-    }
-    onAuthSuccess();
+  if(!data.session) return;
+  currentUserId = data.session.user.id;
+  const { data: prof } = await sb.from('profiles').select('username').eq('id', currentUserId).single();
+  if(!prof){
+    await sb.auth.signOut();
+    currentUserId = null;
+    currentUsername = null;
+    return;
   }
+  currentUsername = prof.username;
+  if(await pullRemoteData(currentUserId, currentUsername)) startApp();
+  else showAuthError('Could not load your data. Check your connection and refresh the page.');
 }
 checkExistingSession();
 </script>
