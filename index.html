@@ -29,11 +29,14 @@ body{display:flex;flex-direction:column;}
 ::-webkit-scrollbar-thumb{background:var(--border3);border-radius:99px;}
 
 /* ── TOPBAR ── */
-#topbar{flex-shrink:0;height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:var(--bg);border-bottom:1px solid var(--border);z-index:10;}
+#topbar{flex-shrink:0;height:66px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:var(--bg);border-bottom:1px solid var(--border);z-index:10;}
 .topbar-logo{font-size:20px;font-weight:900;background:linear-gradient(120deg,#6b84ff,#a3e635);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-0.5px;}
-.topbar-right{display:flex;align-items:center;gap:10px;}
+.topbar-right{display:flex;align-items:center;gap:12px;}
 .topbar-date{font-size:13px;color:var(--gray3);font-weight:500;}
-.streak-badge{display:flex;align-items:center;gap:4px;background:var(--bg4);border:1px solid var(--amber)33;border-radius:20px;padding:3px 9px;font-size:14px;font-weight:700;color:var(--amber);}
+.streak-badge{display:flex;align-items:center;gap:6px;background:var(--bg4);border:1px solid var(--amber)55;border-radius:24px;padding:7px 15px;font-size:22px;font-weight:800;color:var(--amber);line-height:1;transition:opacity .2s;}
+.topbar-icon{position:relative;background:var(--bg4);border:1px solid var(--border3);border-radius:12px;color:var(--white);font-size:26px;padding:8px 13px;cursor:pointer;line-height:1;}
+#sync-dot{display:none;position:absolute;top:-4px;right:-4px;width:12px;height:12px;border-radius:50%;background:var(--rose);border:2px solid var(--bg);}
+@media(max-width:400px){.topbar-date{display:none;}}
 
 /* ── SCREENS ── */
 #main{flex:1;overflow:hidden;position:relative;}
@@ -53,12 +56,12 @@ body{display:flex;flex-direction:column;}
 .card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:14px;}
 .card-sm{padding:10px 12px;}
 .card-title{font-size:15px;font-weight:800;color:var(--gray3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:7px 14px;border-radius:var(--r3);border:none;cursor:pointer;font-size:14px;font-weight:700;transition:.15s;white-space:nowrap;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px 18px;min-height:44px;border-radius:var(--r3);border:none;cursor:pointer;font-size:16px;font-weight:700;transition:.15s;white-space:nowrap;}
 .btn-blue{background:var(--blue);color:#fff;} .btn-blue:hover{background:var(--blue2);}
 .btn-ghost{background:var(--bg4);border:1px solid var(--border2);color:var(--gray3);}
 .btn-ghost:hover{color:var(--white);border-color:var(--border3);}
 .btn-rose{background:var(--rose);color:#fff;}
-.btn-sm{padding:5px 11px;font-size:14px;border-radius:6px;}
+.btn-sm{padding:9px 16px;min-height:40px;font-size:15px;border-radius:9px;}
 .row{display:flex;align-items:center;gap:8px;}
 .row-between{display:flex;align-items:center;justify-content:space-between;}
 .mb8{margin-bottom:8px;} .mb10{margin-bottom:10px;} .mb12{margin-bottom:12px;} .mb14{margin-bottom:14px;}
@@ -195,8 +198,8 @@ input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 
   <div class="topbar-logo">Pulse</div>
   <div class="topbar-right">
     <div class="topbar-date" id="top-date"></div>
-    <button onclick="openModal('modal-notes')" style="background:var(--bg4);border:1px solid var(--border3);border-radius:9px;color:var(--white);font-size:19px;font-weight:600;padding:6px 11px;cursor:pointer;line-height:1;">✏️</button>
-    <button onclick="openProfileModal()" style="background:transparent;border:1px solid var(--border2);border-radius:7px;color:var(--gray3);font-size:13px;font-weight:600;padding:4px 9px;cursor:pointer;">👤</button>
+    <button class="topbar-icon" onclick="openModal('modal-notes')" title="Notes">✏️</button>
+    <button class="topbar-icon" onclick="openProfileModal()" title="Profile">👤<span id="sync-dot"></span></button>
     <div class="streak-badge">🔥<span id="streak-val">0</span></div>
   </div>
 </div>
@@ -737,8 +740,66 @@ let moods      =load('moods',{});
 let water      =load('water',{});
 let screenTime =load('screenTime',{});  // {date:{productive,distractive}} minutes
 let taskStreaks =load('tstreaks',{});  // {taskId:{streak,lastDone,best}}
-let noteFolders =load('noteFolders',[{id:'nfDefault',name:'General',icon:'📁',color:'#4f6ef7'}]);
-let notes       =load('notes',[]);  // {id,folderId,title,body,created,updated}
+// Notes & folders: every note / folder is its OWN row in Supabase ("note:<id>", "nfolder:<id>").
+// A stale tab or device can then only overwrite the single note it edited, never the whole list.
+// Deleted items become tombstones {id,deleted:true} so they stay deleted when devices merge.
+const NOTE_PFX='note:', FOLDER_PFX='nfolder:';
+let noteFolders=[], notes=[];   // note: {id,folderId,title,body,created,updated}
+function _ts(x){return (x&&(x.updated||x.created))||'';}
+function _putNewest(map,item){ if(item&&item.id&&(!map[item.id]||_ts(item)>=_ts(map[item.id]))) map[item.id]=item; }
+function _saveItem(pfx,item){
+  const k=pfx+item.id, v=JSON.parse(JSON.stringify(item));
+  PULSE_CACHE[k]=JSON.stringify(v);
+  return cloudSave(k,v);
+}
+function saveNoteItem(n){ return _saveItem(NOTE_PFX,n); }
+function saveFolderItem(f){ f.updated=new Date().toISOString(); return _saveItem(FOLDER_PFX,f); }
+function tombstoneNote(id){ return _saveItem(NOTE_PFX,{id,deleted:true,updated:new Date().toISOString()}); }
+function tombstoneFolder(id){ return _saveItem(FOLDER_PFX,{id,deleted:true,updated:new Date().toISOString()}); }
+function loadNoteData(){
+  const nMap={}, fMap={}, inRows={};
+  // 1) legacy single-row blobs from older versions (kept in the cloud untouched as a backup)
+  (DB.get('notes')||[]).forEach(n=>_putNewest(nMap,n));
+  (DB.get('noteFolders')||[]).forEach(f=>_putNewest(fMap,f));
+  // 2) per-item rows (newest wins; tombstones included)
+  Object.keys(PULSE_CACHE).forEach(k=>{
+    const isN=k.startsWith(NOTE_PFX), isF=k.startsWith(FOLDER_PFX);
+    if(!isN&&!isF) return;
+    let obj; try{obj=JSON.parse(PULSE_CACHE[k]);}catch{return;}
+    if(!obj||!obj.id) return;
+    inRows[k]=true;
+    _putNewest(isN?nMap:fMap,obj);
+  });
+  notes=Object.values(nMap).filter(n=>!n.deleted);
+  noteFolders=Object.values(fMap).filter(f=>!f.deleted);
+  // one-time migration: upload legacy items that have no row of their own yet
+  notes.forEach(n=>{ if(!inRows[NOTE_PFX+n.id]) saveNoteItem(n); });
+  noteFolders.forEach(f=>{ if(!inRows[FOLDER_PFX+f.id]) _saveItem(FOLDER_PFX,f); });
+  if(!noteFolders.length){
+    const def={id:'nfDefault',name:'General',icon:'📁',color:'#4f6ef7'};
+    noteFolders=[def]; saveFolderItem(def);
+  }
+}
+loadNoteData();
+// Re-check the cloud whenever you come back to the app, so a tab left open for days never works from old data.
+async function syncNotesFromCloud(){
+  if(!currentUserId) return;
+  try{
+    const [a,b]=await Promise.all([
+      sb.from('pulse_data').select('key,value').eq('user_id',currentUserId).like('key',NOTE_PFX+'%'),
+      sb.from('pulse_data').select('key,value').eq('user_id',currentUserId).like('key',FOLDER_PFX+'%')
+    ]);
+    if(a.error||b.error) return;
+    [...(a.data||[]),...(b.data||[])].forEach(r=>{
+      if(_pendingVals[r.key]!==undefined) return;            // local change not uploaded yet - keep it
+      let local=null; try{local=JSON.parse(PULSE_CACHE[r.key]||'null');}catch{}
+      if(!local||_ts(r.value)>_ts(local)) PULSE_CACHE[r.key]=JSON.stringify(r.value);
+    });
+    loadNoteData();
+    if(document.getElementById('modal-notes')?.classList.contains('open')) renderNotes();
+  }catch(e){console.error('Pulse: note sync failed',e);}
+}
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') syncNotesFromCloud(); });
 let notesFilter ='all';
 
 function persist(){
@@ -746,10 +807,10 @@ function persist(){
     save('sleep',sleepLogs), save('habits',habits), save('tasks',tasks),
     save('groups',groups), save('subjects',subjects), save('study',studySess),
     save('hchecks',habitChecks), save('moods',moods), save('water',water),
-    save('screenTime',screenTime), save('tstreaks',taskStreaks),
-    save('noteFolders',noteFolders), save('notes',notes)
+    save('screenTime',screenTime), save('tstreaks',taskStreaks)
   ].every(Boolean);
   if(!ok) toast('⚠️ Save failed — not signed in or cloud unavailable. Export a backup now.','var(--rose)');
+  try{updateTopStreak();}catch(e){}
 }
 
 // ── Utils ──
@@ -996,8 +1057,9 @@ function saveNoteFolder(){
   const icon=document.getElementById('nf-icon').value||'📁';
   const color=getSwatch('nf-colors');
   if(!name){toast('Enter a folder name','var(--rose)');return;}
-  noteFolders.push({id:uid(),name,icon,color});
-  persist(); closeModal('modal-note-folder');
+  const nf={id:uid(),name,icon,color}; noteFolders.push(nf);
+  if(!saveFolderItem(nf)) toast('⚠️ Folder not saved to cloud','var(--rose)');
+  closeModal('modal-note-folder');
   document.getElementById('nf-name').value=''; document.getElementById('nf-icon').value='';
   toast('Folder created!','var(--purple)');
   renderNotes();
@@ -1006,17 +1068,17 @@ function saveNoteFolder(){
 function deleteNoteFolder(id){
   if(!confirm('Delete folder? Its notes will move to another folder.')) return;
   let fallback=noteFolders.find(f=>f.id!==id);
-  if(!fallback){ fallback={id:uid(),name:'General',icon:'📁',color:'#4f6ef7'}; noteFolders.push(fallback); }
-  notes.forEach(n=>{ if(n.folderId===id) n.folderId=fallback.id; });
+  if(!fallback){ fallback={id:uid(),name:'General',icon:'📁',color:'#4f6ef7'}; noteFolders.push(fallback); saveFolderItem(fallback); }
+  notes.forEach(n=>{ if(n.folderId===id){ n.folderId=fallback.id; n.updated=new Date().toISOString(); saveNoteItem(n); } });
   noteFolders=noteFolders.filter(f=>f.id!==id);
+  tombstoneFolder(id);
   if(notesFilter===id) notesFilter='all';
-  persist();
   toast('Folder deleted','var(--rose)');
   renderNotes();
 }
 
 function openNoteEditor(id){
-  document.getElementById('nt-folder').innerHTML=noteFolders.map(f=>`<option value="${f.id}">${f.icon} ${f.name}</option>`).join('');
+  document.getElementById('nt-folder').innerHTML=noteFolders.map(f=>`<option value="${f.id}">${f.icon} ${escHtml(f.name)}</option>`).join('');
   if(id){
     const n=notes.find(x=>x.id===id); if(!n) return;
     document.getElementById('note-edit-title').textContent='Edit Note';
@@ -1043,13 +1105,16 @@ function saveNote(){
   const body=document.getElementById('nt-body').value;
   if(!title){toast('Enter a note title','var(--rose)');return;}
   const now=new Date().toISOString();
+  let saved;
   if(id){
     const n=notes.find(x=>x.id===id);
-    if(n){ n.folderId=folderId; n.title=title; n.body=body; n.updated=now; }
+    if(n){ n.folderId=folderId; n.title=title; n.body=body; n.updated=now; saved=saveNoteItem(n); }
   } else {
-    notes.push({id:uid(),folderId,title,body,created:now,updated:now});
+    const n={id:uid(),folderId,title,body,created:now,updated:now};
+    notes.push(n); saved=saveNoteItem(n);
   }
-  persist(); closeModal('modal-note-edit');
+  if(!saved) toast('⚠️ Note NOT saved to cloud — are you signed in?','var(--rose)');
+  closeModal('modal-note-edit');
   toast(id?'Note updated!':'Note added!','var(--blue2)');
   renderNotes();
 }
@@ -1057,7 +1122,7 @@ function saveNote(){
 function deleteNote(id){
   if(!confirm('Delete this note?')) return;
   notes=notes.filter(x=>x.id!==id);
-  persist();
+  tombstoneNote(id);
   toast('Note deleted','var(--rose)');
   renderNotes();
 }
@@ -1066,7 +1131,7 @@ function deleteNoteFromEditor(){
   const id=document.getElementById('nt-id').value; if(!id) return;
   if(!confirm('Delete this note?')) return;
   notes=notes.filter(x=>x.id!==id);
-  persist(); closeModal('modal-note-edit');
+  tombstoneNote(id); closeModal('modal-note-edit');
   toast('Note deleted','var(--rose)');
   renderNotes();
 }
@@ -1077,8 +1142,8 @@ function noteRowHTML(n){
   const dateStr=d.toLocaleDateString('en',{month:'short',day:'numeric'});
   return `<div style="display:flex;align-items:flex-start;gap:9px;padding:9px 0;border-bottom:1px solid var(--border);">
     <div style="flex:1;min-width:0;cursor:pointer;" onclick="openNoteEditor('${n.id}')">
-      <div style="font-size:15px;font-weight:700;color:var(--white);">${n.title}</div>
-      ${snippet?`<div style="font-size:13px;color:var(--gray2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${snippet}${(n.body||'').length>80?'…':''}</div>`:''}
+      <div style="font-size:15px;font-weight:700;color:var(--white);">${escHtml(n.title||'Untitled')}</div>
+      ${snippet?`<div style="font-size:13px;color:var(--gray2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(snippet)}${(n.body||'').length>80?'…':''}</div>`:''}
       <div style="font-size:11px;color:var(--gray);margin-top:3px;">${dateStr}</div>
     </div>
     <div style="display:flex;gap:2px;flex-shrink:0;">
@@ -1091,20 +1156,24 @@ function noteRowHTML(n){
 function renderNotes(){
   document.getElementById('note-filters').innerHTML=
     `<button class="filter-chip ${notesFilter==='all'?'active':''}" onclick="setNotesFilter('all')">All</button>`+
-    noteFolders.map(f=>`<button class="filter-chip ${notesFilter===f.id?'active':''}" onclick="setNotesFilter('${f.id}')">${f.icon} ${f.name}</button>`).join('');
+    noteFolders.map(f=>`<button class="filter-chip ${notesFilter===f.id?'active':''}" onclick="setNotesFilter('${f.id}')">${f.icon} ${escHtml(f.name)}</button>`).join('');
 
-  const foldersToShow=notesFilter==='all'?noteFolders:noteFolders.filter(f=>f.id===notesFilter);
+  // Notes whose folder no longer exists must never disappear - gather them into a visible "Unsorted" folder.
+  const known=new Set(noteFolders.map(f=>f.id));
+  const hasOrphans=notes.some(n=>!known.has(n.folderId));
+  const allFolders=hasOrphans?[...noteFolders,{id:'__orphans__',name:'Unsorted',icon:'🗂️',color:'#f59e0b'}]:noteFolders;
+  const foldersToShow=notesFilter==='all'?allFolders:allFolders.filter(f=>f.id===notesFilter);
   document.getElementById('note-folders-list').innerHTML=foldersToShow.length
     ?foldersToShow.map(f=>{
-      const fNotes=notes.filter(n=>n.folderId===f.id).sort((a,b)=>(b.updated||b.created).localeCompare(a.updated||a.created));
+      const fNotes=notes.filter(n=>f.id==='__orphans__'?!known.has(n.folderId):n.folderId===f.id).sort((a,b)=>(b.updated||b.created).localeCompare(a.updated||a.created));
       return `<div class="card mb10" style="border-color:${f.color}22;">
         <div class="row-between mb8">
           <div class="row" style="gap:6px;">
             <span style="font-size:18px;">${f.icon}</span>
-            <span style="font-size:16px;font-weight:800;color:var(--white);">${f.name}</span>
+            <span style="font-size:16px;font-weight:800;color:var(--white);">${escHtml(f.name)}</span>
             <span style="font-size:14px;background:${f.color}22;color:${f.color};border-radius:99px;padding:2px 8px;font-weight:700;">${fNotes.length}</span>
           </div>
-          <button onclick="deleteNoteFolder('${f.id}')" style="background:transparent;border:none;color:var(--gray);cursor:pointer;font-size:15px;">×</button>
+          ${f.id==='__orphans__'?'':`<button onclick="deleteNoteFolder('${f.id}')" style="background:transparent;border:none;color:var(--gray);cursor:pointer;font-size:15px;">×</button>`}
         </div>
         ${fNotes.length?fNotes.map(n=>noteRowHTML(n)).join(''):`<div style="font-size:14px;color:var(--gray2);padding:5px 0;">No notes yet</div>`}
       </div>`;
@@ -1497,7 +1566,33 @@ function updateNavBadges(){
     el.appendChild(b);
   }
 }
-function updateTopStreak(){document.getElementById('streak-val').textContent=calcHabitStreak();}
+// ── Fire streak: a day counts only when ALL FOUR daily logs have data ──
+// Sleep + Water + Mood + Screen time. (Habits are NOT part of this streak.)
+function missingLogs(ds){
+  const miss=[];
+  if(!sleepLogs.some(x=>x.date===ds)) miss.push('Sleep');
+  if(!((water[ds]||0)>0)) miss.push('Water');
+  if(!moods[ds]) miss.push('Mood');
+  if(!screenTime[ds]) miss.push('Screen time');
+  return miss;
+}
+function calcLogStreak(){
+  const d=new Date(); let s=0;
+  // Today still being filled in doesn't break the streak - start from yesterday in that case.
+  if(missingLogs(toLocalYMD(d)).length) d.setDate(d.getDate()-1);
+  while(s<3650){
+    if(missingLogs(toLocalYMD(d)).length) break;
+    s++; d.setDate(d.getDate()-1);
+  }
+  return s;
+}
+function updateTopStreak(){
+  const el=document.getElementById('streak-val'); if(!el) return;
+  el.textContent=calcLogStreak();
+  const badge=el.parentElement, miss=missingLogs(today());
+  badge.style.opacity=miss.length?'.6':'1';
+  badge.title=miss.length?('Log today to grow your fire: '+miss.join(', ')):'Today is complete - fire is lit!';
+}
 
 // ══════════════════════════════════════
 //  RENDER DASHBOARD
@@ -1512,7 +1607,7 @@ function renderDash(){
     :pending?`${pending} task${pending>1?'s':''} due today`
     :'Nothing due today 🎉';
 
-  const streak=calcHabitStreak();
+  const streak=calcLogStreak();
   const doneH=habits.filter(hb=>habitEligible(hb,t)&&habitChecks[t+'_'+hb.id]).length;
   const eligH=habits.filter(hb=>habitEligible(hb,t)).length;
   const lastSleep=sleepLogs.at(-1);
@@ -1526,7 +1621,7 @@ function renderDash(){
     </div>
     <div class="metric-card" style="border-color:#f59e0b22;">
       <div class="metric-val" style="color:var(--amber);">🔥${streak}</div>
-      <div class="metric-lbl">Streak</div>
+      <div class="metric-lbl">Log streak</div>
     </div>
     <div class="metric-card" style="border-color:#22d3ee22;">
       <div class="metric-val" style="color:var(--cyan);">${lastSleep?fmtH(lastSleep.dur):'—'}</div>
@@ -2067,7 +2162,7 @@ function renderHabits(){
 
   document.getElementById('habit-stats').innerHTML=`
     <div class="metric-card"><div class="metric-val" style="color:var(--blue);">${doneToday}/${eligToday.length}</div><div class="metric-lbl">Today</div></div>
-    <div class="metric-card"><div class="metric-val" style="color:var(--amber);">🔥${totalStreak}</div><div class="metric-lbl">Streak</div></div>
+    <div class="metric-card"><div class="metric-val" style="color:var(--amber);">🔥${totalStreak}</div><div class="metric-lbl">Habit streak</div></div>
     <div class="metric-card"><div class="metric-val" style="color:var(--purple);">${bestEver}d</div><div class="metric-lbl">Best</div></div>
   `;
 
@@ -2168,6 +2263,7 @@ renderDash(); renderHealth(); renderAcademic(); renderTasks(); renderHabits();
       <div style="font-size:32px;margin-bottom:4px;">👤</div>
       <div id="profile-username" style="font-size:16px;font-weight:800;color:var(--white);">—</div>
     </div>
+    <div id="sync-status-text" onclick="retryPending()" style="font-size:13px;text-align:center;margin-bottom:10px;cursor:pointer;color:var(--gray);">☁️ All changes are saved to the cloud.</div>
     <button class="btn btn-ghost" style="width:100%;font-size:15px;margin-bottom:8px;" onclick="closeModal('modal-profile');openModal('modal-backup');">💾 Backup &amp; Restore</button>
     <button class="btn btn-ghost" style="width:100%;font-size:15px;margin-bottom:8px;" onclick="handleClearAllData()">🧹 Clear All Data</button>
     <button class="btn btn-rose" style="width:100%;font-size:15px;margin-bottom:8px;" onclick="handleLogout()">🚪 Log Out</button>
@@ -2259,6 +2355,7 @@ function restoreBackup(){
   if(!_pendingRestore){toast('No valid file loaded','var(--rose)');return;}
   if(!confirm('Overwrite ALL current data with this backup?')) return;
   const d=_pendingRestore;
+  const _oldNotes=notes, _oldFolders=noteFolders;
   sleepLogs  =d.sleepLogs  ||[];
   habits     =d.habits     ||[];
   tasks      =d.tasks      ||[];
@@ -2272,6 +2369,13 @@ function restoreBackup(){
   taskStreaks =d.taskStreaks||{};
   noteFolders =d.noteFolders||[{id:'nfDefault',name:'General',icon:'📁',color:'#4f6ef7'}];
   notes       =d.notes      ||[];
+  { const now=new Date().toISOString();
+    const keepN=new Set(notes.map(n=>n.id)), keepF=new Set(noteFolders.map(f=>f.id));
+    _oldNotes.forEach(n=>{ if(!keepN.has(n.id)) tombstoneNote(n.id); });
+    _oldFolders.forEach(f=>{ if(!keepF.has(f.id)) tombstoneFolder(f.id); });
+    notes.forEach(n=>{ if(!n.id) n.id=uid(); n.updated=now; saveNoteItem(n); });
+    noteFolders.forEach(f=>{ if(!f.id) f.id=uid(); saveFolderItem(f); });
+  }
   persist();
   renderDash();renderHealth();renderAcademic();renderTasks();renderHabits();renderNotes();
   updateTopStreak();updateNavBadges();
@@ -2303,24 +2407,74 @@ const PULSE_CACHE = {};
 const _saveChain = {};   // per-key promise chain so saves for one key reach Supabase in order
 const _unsynced = {};    // keys whose last upload failed (retried on next save)
 
+const _pendingVals = {};   // key -> newest value NOT yet confirmed by Supabase
+let _accessToken = null;
+let _lastFailToast = 0;
+sb.auth.onAuthStateChange((ev, session)=>{ _accessToken = session ? session.access_token : null; });
+
+function updateSyncIndicator(){
+  const n = Object.keys(_pendingVals).length;
+  const dot = document.getElementById('sync-dot');
+  if(dot) dot.style.display = n ? 'block' : 'none';
+  const t = document.getElementById('sync-status-text');
+  if(t){
+    t.textContent = n ? '⚠️ '+n+' change'+(n>1?'s':'')+' not saved to the cloud yet. Tap to retry.' : '☁️ All changes are saved to the cloud.';
+    t.style.color = n ? 'var(--rose)' : 'var(--gray)';
+  }
+}
+const _sleep = ms => new Promise(r=>setTimeout(r,ms));
 function cloudSave(k, v){
   if(!currentUserId) return false;
   const uid = currentUserId;
+  _pendingVals[k] = v;
+  updateSyncIndicator();
   _saveChain[k] = (_saveChain[k] || Promise.resolve()).then(async ()=>{
-    try{
-      const { error } = await sb.from('pulse_data').upsert({ user_id:uid, key:k, value:v });
-      if(error) throw error;
-      delete _unsynced[k];
-      return true;
-    }catch(err){
-      console.error('Pulse: cloud save failed for "'+k+'"', err);
-      _unsynced[k] = true;
-      toast('⚠️ Cloud save failed — check your connection','var(--rose)');
-      return false;
+    for(let attempt=0; attempt<3; attempt++){
+      try{
+        const { error } = await sb.from('pulse_data').upsert({ user_id:uid, key:k, value:v });
+        if(error) throw error;
+        delete _unsynced[k];
+        if(_pendingVals[k] === v) delete _pendingVals[k];
+        updateSyncIndicator();
+        return true;
+      }catch(err){
+        console.error('Pulse: cloud save failed for "'+k+'" (try '+(attempt+1)+')', err);
+        if(attempt<2) await _sleep(1500*(attempt+1));
+      }
     }
+    _unsynced[k] = true;
+    updateSyncIndicator();
+    if(Date.now()-_lastFailToast > 20000){
+      _lastFailToast = Date.now();
+      toast('⚠️ Cloud save failed. Your change is kept and will retry. Check your connection.','var(--rose)');
+    }
+    return false;
   });
   return true;
 }
+async function retryPending(){
+  if(!currentUserId) return;
+  Object.keys(_pendingVals).forEach(k=>cloudSave(k,_pendingVals[k]));
+  await flushSaves();
+  updateSyncIndicator();
+}
+window.addEventListener('online', retryPending);
+setInterval(()=>{ if(Object.keys(_pendingVals).length) retryPending(); }, 30000);
+// Last chance: when the tab is hidden or closed, push anything still pending with keepalive requests.
+function flushPendingKeepalive(){
+  if(!currentUserId || !_accessToken) return;
+  Object.keys(_pendingVals).forEach(k=>{
+    try{
+      fetch(SUPA_URL+'/rest/v1/pulse_data',{
+        method:'POST', keepalive:true,
+        headers:{'Content-Type':'application/json', apikey:SUPA_KEY, Authorization:'Bearer '+_accessToken, Prefer:'resolution=merge-duplicates'},
+        body:JSON.stringify({ user_id:currentUserId, key:k, value:_pendingVals[k] })
+      }).catch(()=>{});
+    }catch(e){}
+  });
+}
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden') flushPendingKeepalive(); });
+window.addEventListener('pagehide', flushPendingKeepalive);
 async function flushSaves(){
   const results = await Promise.all(Object.values(_saveChain));
   return results.every(Boolean);
@@ -2341,6 +2495,7 @@ function usernameToEmail(u){ return u + '@pulseusers.app'; }
 
 function openProfileModal(){
   document.getElementById('profile-username').textContent = currentUsername ? '@'+currentUsername : '—';
+  updateSyncIndicator();
   openModal('modal-profile');
 }
 
@@ -2386,25 +2541,23 @@ async function pullRemoteData(userId, username){
 // If the cloud account is empty, the old local data is uploaded first so nothing is lost; then it is removed.
 async function adoptLegacyLocalData(userId, username){
   try{
-    const hasLegacy = PULSE_KEYS.some(k=>localStorage.getItem('pulse2_'+k)!==null);
-    if(hasLegacy){
-      const legacyUser = localStorage.getItem('pulse2_username');
-      const cloudEmpty = Object.keys(PULSE_CACHE).length === 0;
-      if(cloudEmpty && (!legacyUser || legacyUser === username)){
-        for(const k of PULSE_KEYS){
-          const raw = localStorage.getItem('pulse2_'+k);
-          if(raw===null) continue;
-          const value = JSON.parse(raw);
-          const { error } = await sb.from('pulse_data').upsert({ user_id:userId, key:k, value });
-          if(error) throw error;
-          PULSE_CACHE[k] = JSON.stringify(value);
-        }
+    const legacyUser = localStorage.getItem('pulse2_username');
+    const mine = (!legacyUser || legacyUser === username);
+    for(const k of PULSE_KEYS){
+      const raw = localStorage.getItem('pulse2_'+k);
+      if(raw===null) continue;
+      // Only delete the old local copy once it is safely in the cloud; otherwise leave it alone.
+      if(mine && PULSE_CACHE[k]===undefined){
+        const value = JSON.parse(raw);
+        const { error } = await sb.from('pulse_data').upsert({ user_id:userId, key:k, value });
+        if(error) throw error;
+        PULSE_CACHE[k] = JSON.stringify(value);
+        localStorage.removeItem('pulse2_'+k);
+      } else if(PULSE_CACHE[k]!==undefined && PULSE_CACHE[k]===JSON.stringify(JSON.parse(raw))){
+        localStorage.removeItem('pulse2_'+k);   // identical copy already in the cloud
       }
-      PULSE_KEYS.forEach(k=>localStorage.removeItem('pulse2_'+k));
     }
-    localStorage.removeItem('pulse2_username');
-    localStorage.removeItem('pulse2_migrated');
-  }catch(e){ console.error('Pulse: legacy local data import failed — local copy kept', e); }
+  }catch(e){ console.error('Pulse: legacy local data import failed - local copy kept', e); }
 }
 
 function switchAuthTab(mode){
